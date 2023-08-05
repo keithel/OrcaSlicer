@@ -4,8 +4,18 @@ set -e # exit on first error
 export ROOT=`pwd`
 export NCORES=`nproc --all`
 export CMAKE_BUILD_PARALLEL_LEVEL=${NCORES}
-FOUND_GTK2=$(dpkg -l libgtk* | grep gtk2)
-FOUND_GTK3=$(dpkg -l libgtk* | grep gtk-3)
+
+[ -f /etc/debian_version ] && DISTRO_TYPE="debian" || [ -f /etc/redhat-release ] && DISTRO_TYPE="redhat" || DISTRO_TYPE="unknown"
+if [[ "$DISTRO_TYPE" == "debian" ]]; then
+    FOUND_GTK2=$(dpkg -l libgtk* | grep gtk2)
+    FOUND_GTK3=$(dpkg -l libgtk* | grep gtk-3)
+elif [[ "$DISTRO_TYPE" == "redhat" ]]; then
+    FOUND_GTK2=$(dnf list --installed "gtk2")
+    FOUND_GTK3=$(dnf list --installed "gtk3")
+else
+    echo <&2 "Unknown distribution type. aborting"
+    exit 1
+fi
 
 function check_available_memory_and_disk() {
     FREE_MEM_GB=$(free -g -t | grep 'Mem:' | rev | cut -d" " -f1 | rev)
@@ -25,6 +35,28 @@ function check_available_memory_and_disk() {
         echo && df -h . && echo
         exit 1
     fi
+}
+
+function install_additional_dev_packages() {
+    # Addtional Dev packages for BambuStudio
+    if [[ "$DISTRO_TYPE" == "debian" ]]; then
+        install_additional_dev_packages_deb
+    else
+        install_additional_dev_packages_rh
+    fi
+}
+
+function install_additional_dev_packages_deb() {
+    export REQUIRED_DEV_PACKAGES="libmspack-dev libgstreamerd-3-dev libsecret-1-dev libwebkit2gtk-4.0-dev libosmesa6-dev libssl-dev libcurl4-openssl-dev eglexternalplatform-dev libudev-dev libdbus-1-dev extra-cmake-modules"
+    # libwebkit2gtk-4.1-dev ??
+    export DEV_PACKAGES_COUNT=$(echo ${REQUIRED_DEV_PACKAGES} | wc -w)
+    if [ $(dpkg --get-selections | grep -E "$(echo ${REQUIRED_DEV_PACKAGES} | tr ' ' '|')" | wc -l) -lt ${DEV_PACKAGES_COUNT} ]; then
+        sudo apt install -y ${REQUIRED_DEV_PACKAGES} git cmake wget file
+    fi
+}
+
+function install_additional_dev_packages_rh() {
+    export REQUIRED_DEV_PACKAGES="libmspack-devel"
 }
 
 unset name
@@ -87,13 +119,7 @@ then
     mkdir build
 fi
 
-# Addtional Dev packages for BambuStudio
-export REQUIRED_DEV_PACKAGES="libmspack-dev libgstreamerd-3-dev libsecret-1-dev libwebkit2gtk-4.0-dev libosmesa6-dev libssl-dev libcurl4-openssl-dev eglexternalplatform-dev libudev-dev libdbus-1-dev extra-cmake-modules"
-# libwebkit2gtk-4.1-dev ??
-export DEV_PACKAGES_COUNT=$(echo ${REQUIRED_DEV_PACKAGES} | wc -w)
-if [ $(dpkg --get-selections | grep -E "$(echo ${REQUIRED_DEV_PACKAGES} | tr ' ' '|')" | wc -l) -lt ${DEV_PACKAGES_COUNT} ]; then
-    sudo apt install -y ${REQUIRED_DEV_PACKAGES} git cmake wget file
-fi
+install_additional_dev_packages
 
 #FIXME: require root for -u option
 if [[ -n "$UPDATE_LIB" ]]
